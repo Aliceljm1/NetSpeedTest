@@ -13,11 +13,13 @@ import com.example.netspeedtest.R.id;
 
 
 import android.app.Activity;
+import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -26,19 +28,23 @@ import android.view.animation.Animation;
 import android.view.animation.AnimationSet;
 import android.view.animation.RotateAnimation;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 public class MainActivity extends Activity
 {
 
 	private TextView tv_type,tv_now_speed,tv_ave_speed;
-	private Button btn;
+	private EditText edit_fileurl;
+	private Button btn_testspeed;
 	private ImageView needle;
-	private Info info;
+	private TFileInfo fileInfo;
 	private byte[] imageBytes;
 	private boolean flag;
 	private int last_degree=0,cur_degree;
+	private Context mContext;
 	
 	private Handler handler=new Handler()
 	{
@@ -57,8 +63,8 @@ public class MainActivity extends Activity
 			{
 				tv_now_speed.setText("0KB/S");
 				startAnimation(0);
-				btn.setText("开始测试");
-				btn.setEnabled(true);
+				btn_testspeed.setText("开始测试");
+				btn_testspeed.setEnabled(true);
 			}
 		}
 		
@@ -68,38 +74,57 @@ public class MainActivity extends Activity
 	protected void onCreate(Bundle savedInstanceState)
 	{
 		super.onCreate(savedInstanceState);
+		mContext=this;
 		setContentView(R.layout.main);
-		
-		info=new Info();
+		findViews();
+		bindEvents();
+	}
 
-		tv_type=(TextView) findViewById(R.id.connection_type);
-		tv_now_speed=(TextView) findViewById(R.id.now_speed);
-		tv_ave_speed=(TextView) findViewById(R.id.ave_speed);
-		needle=(ImageView) findViewById(R.id.needle);
-		btn=(Button) findViewById(R.id.start_btn);
-		
-		
-		btn.setOnClickListener(new View.OnClickListener()
+
+	private void bindEvents() {
+		btn_testspeed.setOnClickListener(new View.OnClickListener()
 		{
 			
 			@Override
 			public void onClick(View arg0)
 			{
+				String url=edit_fileurl.getText().toString();
+				if(TextUtils.isEmpty(url))
+				{
+					Toast.makeText(mContext, "请输入地址", Toast.LENGTH_SHORT).show();
+					return ;
+				}
+				
 				// TODO Auto-generated method stub
 				ConnectivityManager connectivityManager=(ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
 				NetworkInfo networkInfo=connectivityManager.getActiveNetworkInfo();
 				tv_type.setText(networkInfo.getTypeName());
+				btn_testspeed.setText("测试中");
+				btn_testspeed.setEnabled(false);
 				
+				fileInfo=new TFileInfo();
+				fileInfo.setFileUrl(url);
+				fileInfo.setFinishByte(0);
+				fileInfo.setSpeed(0);
+				fileInfo.setTotalByte(1024);
 				
-				btn.setText("测试中");
-				btn.setEnabled(false);
-				info.hadfinishByte=0;
-				info.speed=0;
-				info.totalByte=1024;
 				new DownloadThread().start();
 				new GetInfoThread().start();
 			}
 		});
+	}
+
+
+	private void findViews() {
+		tv_type=(TextView) findViewById(R.id.connection_type);
+		tv_now_speed=(TextView) findViewById(R.id.now_speed);
+		tv_ave_speed=(TextView) findViewById(R.id.ave_speed);
+		needle=(ImageView) findViewById(R.id.needle);
+		btn_testspeed=(Button) findViewById(R.id.start_btn);
+		edit_fileurl=(EditText)findViewById(R.id.edit_testfileurl);
+
+		String url_string="http://192.168.0.6/server/upload/video.mp4";
+		edit_fileurl.setText(url_string);
 	}
 
 
@@ -109,8 +134,6 @@ public class MainActivity extends Activity
 		@Override
 		public void run()
 		{
-			// TODO Auto-generated method stub
-			String url_string="http://192.168.2.2/myroot/fortest.png";
 			long start_time,cur_time;
 			URL url;
 			URLConnection connection;
@@ -118,24 +141,25 @@ public class MainActivity extends Activity
 			
 			try
 			{
-				url=new URL(url_string);
+				url=new URL(fileInfo.getFileUrl());
 				connection=url.openConnection();
 				
-				info.totalByte=connection.getContentLength();
+				fileInfo.setTotalByte(connection.getContentLength());
 				
 				iStream=connection.getInputStream();
 				start_time=System.currentTimeMillis();
 				while(iStream.read()!=-1 && flag)
 				{
 					
-					info.hadfinishByte++;
+					fileInfo.finishBytePlus();
 					cur_time=System.currentTimeMillis();
 					if(cur_time-start_time==0)
 					{
-						info.speed=1000;
+						fileInfo.setSpeed(1000);
 					}
 					else {
-						info.speed=info.hadfinishByte/(cur_time-start_time)*1000;
+						
+						fileInfo.setSpeed(fileInfo.getFinishByte()/(cur_time-start_time)*1000);
 					}
 				}
 				iStream.close();
@@ -161,23 +185,23 @@ public class MainActivity extends Activity
 			{
 				sum=0;
 				counter=0;
-				while(info.hadfinishByte<info.totalByte && flag)
+				while(fileInfo.getFinishByte()<fileInfo.getTotalByte() && flag)
 				{
 					Thread.sleep(1000);
 					
-					sum+=info.speed;
+					sum+=fileInfo.getSpeed();
 					counter++;
 					
-					cur_speed=(int) info.speed;
+					cur_speed=(int) fileInfo.getSpeed();
 					ave_speed=(int) (sum/counter);
-					Log.e("Test", "cur_speed:"+info.speed/1024+"KB/S ave_speed:"+ave_speed/1024);
+					Log.e("Test", "cur_speed:"+fileInfo.getSpeed()/1024+"KB/S ave_speed:"+ave_speed/1024);
 					Message msg=new Message();
-					msg.arg1=((int)info.speed/1024);
+					msg.arg1=((int)fileInfo.getSpeed()/1024);
 					msg.arg2=((int)ave_speed/1024);
 					msg.what=0x123;
 					handler.sendMessage(msg);
 				}
-				if(info.hadfinishByte==info.totalByte && flag)
+				if(fileInfo.getFinishByte()==fileInfo.getTotalByte() && flag)
 				{
 					handler.sendEmptyMessage(0x100);
 				}
